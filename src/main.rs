@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write, net::{IpAddr, Ipv4Addr, SocketAddr}};
+use std::{collections::HashMap, fs::File, io::Write, net::{IpAddr, Ipv4Addr, SocketAddr}};
 use novastar_core;
 use sacn_unofficial::{self, packet::ACN_SDT_MULTICAST_PORT, receive::SacnReceiver};
 use config::Config;
@@ -42,6 +42,8 @@ async fn main() {
         Err(e) => println!("Config Err {e}"),
     };
 
+    let mut last_map: HashMap<String, u8> = HashMap::new();
+
     loop {
         let controllers = novastar_core::get_controllers();
         let _ = match dmx_rx.recv(None) {
@@ -49,9 +51,26 @@ async fn main() {
                 //println!("dmx packet {:?}", dmx_packet[0].values);
                 if controllers.len() > 0 {
                     for i in 0..controllers.len() {
-                        controllers[i].set_brightness(dmx_packet[0].values[i+dmx_start]);
+                        let current_port = controllers[i].port_name.to_owned();
+
+                        let max = settings.get_int(format!("{}/max", current_port).as_str()).unwrap_or(255) as u8;
+                        let min = settings.get_int(format!("{}/min", current_port).as_str()).unwrap_or(0) as u8;
+                        let transpose = settings.get_bool(format!("{}/transpose", current_port).as_str()).unwrap_or(false);
+
+                        let last = last_map.entry( current_port.to_string()).or_insert(0).to_owned();
+
+                        let new_bright = match transpose {
+                            true => dmx_packet[0].values[i+dmx_start]/255*(max-min)+min,
+                            false => dmx_packet[0].values[i+dmx_start],
+                        };
+                        
+                        if last != new_bright {
+                            controllers[i].set_brightness(new_bright);
+                        }
+
+                        *last_map.get_mut(&current_port).unwrap() = new_bright;
                     }
-                }        
+                } 
             },
             Err(e) => println!("DMX Error {e}"),
         };
