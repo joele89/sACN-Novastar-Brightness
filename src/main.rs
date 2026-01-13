@@ -24,8 +24,6 @@ async fn main() {
         },
     };
     
-
-    novastar_core::discover();
     let mut dmx_rx = SacnReceiver::with_ip(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), ACN_SDT_MULTICAST_PORT), None).unwrap();
 
     match settings.get_int("universe") {
@@ -45,33 +43,33 @@ async fn main() {
     let mut last_map: HashMap<String, u8> = HashMap::new();
 
     loop {
-        let controllers = novastar_core::get_controllers();
         let _ = match dmx_rx.recv(None) {
             Ok(dmx_packet) => {
-                //println!("dmx packet {:?}", dmx_packet[0].values);
-                if controllers.len() > 0 {
-                    for i in 0..controllers.len() {
-                        let current_port = controllers[i].port_name.to_owned();
+                println!("dmx packet {:?}", dmx_packet[0].values);
+                let mut i: usize = 0;
+                let controllers = novastar_core::net::discover().unwrap();
+                for mut controller in controllers {
+                    let current_port = controller.connection().to_string().to_owned();
 
-                        let max = settings.get_int(format!("{}/max", current_port).as_str()).unwrap_or(255) as u8;
-                        let min = settings.get_int(format!("{}/min", current_port).as_str()).unwrap_or(0) as u8;
-                        let transpose = settings.get_bool(format!("{}/transpose", current_port).as_str()).unwrap_or(false);
+                    let max = settings.get_int(format!("{}/max", current_port).as_str()).unwrap_or(255) as u8;
+                    let min = settings.get_int(format!("{}/min", current_port).as_str()).unwrap_or(0) as u8;
+                    let transpose = settings.get_bool(format!("{}/transpose", current_port).as_str()).unwrap_or(false);
 
-                        let last = last_map.entry( current_port.to_string()).or_insert(0).to_owned();
+                    let last = last_map.entry( current_port.to_string()).or_insert(0).to_owned();
 
-                        let new_bright = match transpose {
-                            true => dmx_packet[0].values[i+dmx_start]/255*(max-min)+min,
-                            false => dmx_packet[0].values[i+dmx_start],
-                        };
-                        
-                        if last != new_bright {
-                            controllers[i].set_brightness(new_bright);
-                        }
-
-                        *last_map.get_mut(&current_port).unwrap() = new_bright;
+                    let new_bright = match transpose {
+                        true => dmx_packet[0].values[i+dmx_start]/255*(max-min)+min,
+                        false => dmx_packet[0].values[i+dmx_start],
+                    };
+                    
+                    if last != new_bright {
+                        controller.set_brightness(new_bright);
                     }
-                } 
-            },
+
+                    *last_map.get_mut(&current_port).unwrap() = new_bright;
+                    i += 1;
+                }
+                },
             Err(e) => println!("DMX Error {e}"),
         };
     };
